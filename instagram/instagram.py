@@ -1,15 +1,20 @@
-"""
-Elementary Instagram Graph API controls.
+#!/usr/bin/env python3
+"""Instagram Graph API CLI.
+
 Covers: photo post, reel post, carousel post, status check, media list.
 Local files are uploaded to a temporary host to obtain a public URL,
 which is then passed to the Instagram API.
 
-Requires env var (or pass directly):
+Requires env var (or .env file):
   INSTAGRAM_ACCESS_TOKEN
 """
 
+import argparse
+import json
 import os
+import sys
 import time
+
 import requests
 from dotenv import load_dotenv
 
@@ -154,3 +159,100 @@ class InstagramClient:
             media_id,
             fields="id,caption,media_type,timestamp,permalink,like_count,comments_count",
         )
+
+
+# ====================================================================== #
+#  CLI                                                                     #
+# ====================================================================== #
+
+
+def cmd_post_photo(args):
+    client = InstagramClient()
+    media_id = client.post_photo(args.path, caption=args.caption)
+    print(json.dumps({"media_id": media_id}))
+
+
+def cmd_post_reel(args):
+    client = InstagramClient()
+    media_id = client.post_reel(args.path, caption=args.caption)
+    print(json.dumps({"media_id": media_id}))
+
+
+def cmd_post_carousel(args):
+    items = []
+    for spec in args.item:
+        if ":" not in spec:
+            print(f"Error: invalid item format '{spec}'. Use image:/path or video:/path", file=sys.stderr)
+            sys.exit(1)
+        kind, path = spec.split(":", 1)
+        if kind == "image":
+            items.append({"image_path": path})
+        elif kind == "video":
+            items.append({"video_path": path})
+        else:
+            print(f"Error: unknown type '{kind}'. Use 'image' or 'video'", file=sys.stderr)
+            sys.exit(1)
+    if len(items) < 2:
+        print("Error: carousel requires at least 2 items", file=sys.stderr)
+        sys.exit(1)
+    client = InstagramClient()
+    media_id = client.post_carousel(items, caption=args.caption)
+    print(json.dumps({"media_id": media_id}))
+
+
+def cmd_get_media(args):
+    client = InstagramClient()
+    posts = client.get_media(limit=args.limit)
+    print(json.dumps(posts, indent=2))
+
+
+def cmd_get_media_info(args):
+    client = InstagramClient()
+    info = client.get_media_info(args.id)
+    print(json.dumps(info, indent=2))
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(
+        prog="instagram",
+        description="Instagram Graph API CLI",
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    # post-photo
+    p = sub.add_parser("post-photo", help="Post a photo")
+    p.add_argument("--path", required=True, help="Absolute path to image file")
+    p.add_argument("--caption", default="", help="Post caption")
+    p.set_defaults(func=cmd_post_photo)
+
+    # post-reel
+    p = sub.add_parser("post-reel", help="Post a reel")
+    p.add_argument("--path", required=True, help="Absolute path to video file")
+    p.add_argument("--caption", default="", help="Post caption")
+    p.set_defaults(func=cmd_post_reel)
+
+    # post-carousel
+    p = sub.add_parser("post-carousel", help="Post a carousel (2-10 items)")
+    p.add_argument(
+        "--item", action="append", required=True,
+        help="image:/path or video:/path (repeat for each item, order preserved)",
+    )
+    p.add_argument("--caption", default="", help="Post caption")
+    p.set_defaults(func=cmd_post_carousel)
+
+    # get-media
+    p = sub.add_parser("get-media", help="List recent posts")
+    p.add_argument("--limit", type=int, default=10, help="Number of posts (default: 10)")
+    p.set_defaults(func=cmd_get_media)
+
+    # get-media-info
+    p = sub.add_parser("get-media-info", help="Get info for a single post")
+    p.add_argument("--id", required=True, help="Media ID")
+    p.set_defaults(func=cmd_get_media_info)
+
+    return parser
+
+
+if __name__ == "__main__":
+    args = build_parser().parse_args()
+    args.func(args)
